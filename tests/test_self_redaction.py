@@ -112,6 +112,16 @@ def test_redaction_merges_overlapping_spans() -> None:
     assert experiment.redact_text(text, spans) == "Email [REDACTED] now"
 
 
+def test_regex_detects_embedded_amex_test_number() -> None:
+    text = "Use test card 378282246310005 for this transaction."
+
+    predictions = experiment.regex_detect(text)
+
+    assert [(text[span.start : span.end], span.label) for span in predictions] == [
+        ("378282246310005", "CREDIT_CARD")
+    ]
+
+
 def test_conservative_self_detector_avoids_low_entropy_values() -> None:
     profile = experiment.make_profile(0)
     first, last = profile.full_name.split(" ", 1)
