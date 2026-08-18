@@ -96,10 +96,11 @@ The analysis compares five pipelines:
     \citep{datafog}.
     \item \emph{Record} matches selected fields from the resolved customer
     record. It uses exact field-specific normalization for structured values
-    and permits one Levenshtein edit for full names containing at least seven letters
-    long. It also permits one edit in a street name when the house number and
-    suffix agree exactly; matching trailing locality fields are then included in
-    the address span. It does not fuzzy-match numeric identifiers, email
+    and permits one Levenshtein edit for full names containing at least seven
+    letters while requiring aligned name components to retain their initials.
+    Missing or substituted delimiters are also accepted. It permits one edit in
+    a street name when the house number and suffix agree exactly; matching
+    trailing locality fields are then included in the address span. It does not fuzzy-match numeric identifiers, email
     addresses, phone digits, or dates. It rejects first names, ZIP codes,
     last-four values, and incomplete dates because short values collide with
     ordinary text. RapidFuzz 3.14.5 computes edit distance.
