@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -150,6 +151,24 @@ def test_record_matcher_does_not_fuzzy_match_a_house_number() -> None:
     text = "Deliver to 101 Cedar St."
 
     assert experiment.self_detect(profile, text) == []
+
+
+def test_record_matcher_handles_multiword_names_and_streets() -> None:
+    profile = replace(
+        experiment.make_profile(0),
+        full_name="Avery Van Garcia",
+        address="100 Cedar Grove Street, Redmond, WA 98052",
+    )
+    text = "The account is under Avery Van Garia. Deliver to 100 Cedar Gove St."
+
+    assert experiment.incomplete_address_variant(profile.address) == "100 Cear Grove St"
+    assert {
+        (text[span.start : span.end], span.label, span.source)
+        for span in experiment.self_detect(profile, text)
+    } == {
+        ("Avery Van Garia", "NAME", "record_approx"),
+        ("100 Cedar Gove St", "ADDRESS", "record_approx"),
+    }
 
 
 def test_record_matcher_does_not_duplicate_a_complete_address() -> None:

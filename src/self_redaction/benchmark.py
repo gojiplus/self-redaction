@@ -297,7 +297,7 @@ def mistype_token(value: str) -> str:
 def incomplete_address_variant(address: str) -> str:
     """Return a mistyped street line without city, state, or ZIP code."""
     match = re.fullmatch(
-        r"(?P<number>\d+) (?P<street>[A-Za-z]+) "
+        r"(?P<number>\d+) (?P<street>[A-Za-z]+(?: [A-Za-z]+)*) "
         r"(?P<suffix>Street|Avenue|Road|Boulevard), .+",
         address,
     )
@@ -305,7 +305,10 @@ def incomplete_address_variant(address: str) -> str:
         raise ValueError(f"Unexpected synthetic address: {address}")
     values = match.groupdict()
     suffix = dict(SUFFIXES)[values["suffix"]]
-    return f"{values['number']} {mistype_token(values['street'])} {suffix}"
+    street_parts = values["street"].split()
+    typo_index = max(range(len(street_parts)), key=lambda index: len(street_parts[index]))
+    street_parts[typo_index] = mistype_token(street_parts[typo_index])
+    return f"{values['number']} {' '.join(street_parts)} {suffix}"
 
 
 def generate_canonical_chats(profiles: Sequence[Profile]) -> list[ChatRecord]:
@@ -684,7 +687,7 @@ def boundary_literal(value: str) -> re.Pattern[str]:
 
 def address_pattern(address: str) -> re.Pattern[str]:
     match = re.fullmatch(
-        r"(?P<number>\d+)\s+(?P<street>[A-Za-z]+)\s+"
+        r"(?P<number>\d+)\s+(?P<street>[A-Za-z]+(?:\s+[A-Za-z]+)*)\s+"
         r"(?P<suffix>Street|Avenue|Road|Boulevard),\s*"
         r"(?P<city>[A-Za-z]+),\s*(?P<state>[A-Z]{2})\s+(?P<zip>\d{5})",
         address,
@@ -723,17 +726,25 @@ def within_edit_distance(left: str, right: str, maximum: int) -> bool:
 
 
 def approximate_name_spans(profile: Profile, text: str) -> list[Span]:
-    first, last = profile.full_name.split(" ", 1)
+    name_parts = profile.full_name.split()
+    if len(name_parts) < 2:
+        return []
+    first, last = name_parts[0], " ".join(name_parts[1:])
     targets = {
         normalized_words(f"{first} {last}"),
         normalized_words(f"{last} {first}"),
     }
     words = list(re.finditer(r"[A-Za-z]{2,}", text))
     spans: list[Span] = []
-    for left, right in zip(words, words[1:], strict=False):
-        separator = text[left.end() : right.start()]
-        if not re.fullmatch(r"(?:\s+|,\s*)", separator):
+    width = len(name_parts)
+    for index in range(len(words) - width + 1):
+        window = words[index : index + width]
+        if any(
+            not re.fullmatch(r"(?:\s+|,\s*)", text[left.end() : right.start()])
+            for left, right in zip(window, window[1:], strict=False)
+        ):
             continue
+        left, right = window[0], window[-1]
         before = text[left.start() - 1] if left.start() else ""
         before_before = text[left.start() - 2] if left.start() > 1 else ""
         after = text[right.end()] if right.end() < len(text) else ""
@@ -752,7 +763,7 @@ def approximate_name_spans(profile: Profile, text: str) -> list[Span]:
 
 def approximate_street_spans(address: str, text: str) -> list[Span]:
     match = re.fullmatch(
-        r"(?P<number>\d+)\s+(?P<street>[A-Za-z]+)\s+"
+        r"(?P<number>\d+)\s+(?P<street>[A-Za-z]+(?:\s+[A-Za-z]+)*)\s+"
         r"(?P<suffix>Street|Avenue|Road|Boulevard),\s*.+",
         address,
     )
@@ -761,7 +772,8 @@ def approximate_street_spans(address: str, text: str) -> list[Span]:
     values = match.groupdict()
     suffix_short = dict(SUFFIXES)[values["suffix"]]
     candidate_pattern = re.compile(
-        r"(?<!\w)(?P<number>\d{1,6})\s+(?P<street>[A-Za-z]{2,})\s+"
+        r"(?<!\w)(?P<number>\d{1,6})\s+"
+        r"(?P<street>[A-Za-z]{2,}(?:\s+[A-Za-z]{2,})*)\s+"
         r"(?P<suffix>Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd)(?!\w)",
         re.IGNORECASE,
     )
