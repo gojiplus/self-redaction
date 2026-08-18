@@ -22,4 +22,8 @@ jobs:
       - run: make lint test analysis package
       - env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "self-redaction $GITHUB_REF_NAME" --notes-file RELEASE_NOTES.md
+        run: >-
+          gh release create "$GITHUB_REF_NAME" dist/*
+          --verify-tag
+          --generate-notes
+          --title "self-redaction $GITHUB_REF_NAME"

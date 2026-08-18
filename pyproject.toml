@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "self-redaction"
-version = "0.1.0"
+version = "0.1.1"
 description = "Reproducible comparison of record matching and general PII detection"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 license = "MIT"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "LICENSES/*"]
 keywords = ["de-identification", "pii", "privacy", "redaction"]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -22,7 +22,9 @@ classifiers = [
   "Programming Language :: Python :: 3 :: Only",
   "Topic :: Security",
 ]
-dependencies = []
+dependencies = [
+  "rapidfuzz==3.14.5",
+]
 
 [project.urls]
 Homepage = "https://github.com/gojiplus/self-redaction"
@@ -30,7 +32,7 @@ Issues = "https://github.com/gojiplus/self-redaction/issues"
 Repository = "https://github.com/gojiplus/self-redaction"
 
 [project.scripts]
-self-redaction = "self_redaction:main"
+self-redaction = "self_redaction.benchmark:main"
 
 [project.optional-dependencies]
 benchmark = [
@@ -51,7 +53,21 @@ release = [
 required-version = "==0.12.5"
 
 [tool.hatch.build.targets.wheel]
-include = ["self_redaction.py"]
+packages = ["src/self_redaction"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/CHANGELOG.md",
+  "/LICENSE",
+  "/LICENSES",
+  "/Makefile",
+  "/README.md",
+  "/paper",
+  "/pyproject.toml",
+  "/src",
+  "/tests",
+  "/uv.lock",
+]
 
 [tool.hatch.metadata]
 allow-direct-references = true

@@ -12,7 +12,7 @@
 
 \title{Record matching complements general PII detection:\\
 A reproducible synthetic check}
-\author{self-redaction 0.1.0}
+\author{gojiplus}
 \date{August 18, 2026}
 
 \begin{document}
@@ -40,10 +40,15 @@ with a general PII detector.
 The idea is not new. A 2008 clinical de-identification system matched patient
 names from the structured record linked to each note back into the note text. It
 combined those matches with dictionaries, regular expressions, and context
-rules \citep{neamatullah2008}. A later system created patient-specific runtime
-dictionaries and combined them with learned and rule-based components
-\citep{dehghan2015}. This project transfers that design to synthetic
-customer-support text. It does not claim a new de-identification method.
+rules. Its authors found that a generic spell checker added little sensitivity
+and many false positives \citep{neamatullah2008}. A later system created
+patient-specific runtime dictionaries and combined them with learned and
+rule-based components
+\citep{dehghan2015}. Structured patient fields have also been used as the
+reference strings for minimum-edit-distance matching in clinical text with
+fragments, abbreviations, and misspellings \citep{yuwono2016}. This project
+transfers those designs to synthetic customer-support text. It does not claim a
+new de-identification method.
 
 \section*{What the check asks}
 
@@ -62,6 +67,11 @@ corpus does not represent a sampled population of customers or conversations.
 
 The generator creates \ProfileCount{} synthetic customer profiles and eight
 chats per profile, for \ChatCount{} chats and \MentionCount{} labeled mentions.
+It combines fixed lists of 16 first names, 16 last names, 16 street names, four
+cities, and four street suffixes by deterministic index rules. It does not
+sample real records or estimate a population distribution. Gold spans are
+recorded as each chat is assembled rather than recovered by a detector.
+
 Email domains use the reserved example domains. Phone numbers use the North
 American 555-0100 through 555-0199 fiction range. Payment-card examples use a
 standard test number. Social Security number examples use area numbers 900
@@ -69,10 +79,12 @@ through 999, which the Social Security Administration excludes from assignment
 \citep{ssaRandomization}.
 
 Four canonical chats per customer use common renderings of known fields. Four
-stress chats use last-name-first names, slash-separated phone numbers,
-hash-prefixed order numbers, day-first dates, third-party PII, and ordinary
-numeric distractors. The stress suite was written after inspecting the original
-matcher. It is an adversarial software test, not a held-out sample.
+stress chats use a last-name-first name with one deleted or substituted
+character, slash-separated phone numbers, hash-prefixed order numbers,
+uppercase email, a street line with one character error and no city, state, or
+ZIP code, an incomplete date of birth, third-party PII, and ordinary numeric
+distractors. The stress suite was written after inspecting the matcher. It is
+an adversarial software test, not a held-out sample.
 
 The analysis compares five pipelines:
 
@@ -81,8 +93,13 @@ The analysis compares five pipelines:
     DataFog's \texttt{RegexAnnotator}, pinned to commit \texttt{1dc8cc5}
     \citep{datafog}.
     \item \emph{Record} matches selected fields from the resolved customer
-    record. It rejects first names, ZIP codes, and last-four values because
-    short values collide with ordinary text.
+    record. It uses exact field-specific normalization for structured values
+    and permits one Levenshtein edit for full names at least seven characters
+    long. It also permits one edit in a street name when the house number and
+    suffix agree exactly. It does not fuzzy-match numeric identifiers, email
+    addresses, phone digits, or dates. It rejects first names, ZIP codes,
+    last-four values, and incomplete dates because short values collide with
+    ordinary text. RapidFuzz 3.14.5 computes edit distance.
     \item \emph{Regex + record} masks the union of those two outputs.
     \item \emph{Presidio} uses Presidio Analyzer 2.2.364 with its predefined
     recognizers and spaCy's small English pipeline, version 3.8.0,
@@ -116,8 +133,9 @@ Formatting matters. Record matching covers \CanonicalRecordKnownRecall{} of
 known mentions in the canonical suite and \StressRecordKnownRecall{} in the
 stress suite. Presidio plus record matching masks
 \CanonicalPresidioRecordMentionRecall{} of canonical mentions and
-\StressPresidioRecordMentionRecall{} of stress mentions. The stress failures
-include unsupported name, phone, date, and order formats.
+\StressPresidioRecordMentionRecall{} of stress mentions. Record matching covers
+every stress-suite known field except the deliberately incomplete date of birth;
+Presidio sometimes recognizes that fragment.
 
 \begin{table}[htbp]
 \centering
@@ -133,17 +151,16 @@ not population estimates.}
 \resizebox{\textwidth}{!}{\input{metrics_table.tex}}
 \end{table}
 
-The wrong-record control makes the main precondition visible. Record matching
-covers 100\% of known canonical mentions with the correct record and 0\% with
-the next customer's record. The wrong-record Presidio combination reverts to
-Presidio alone. Customer resolution is part of the redaction control.
+The wrong-record control makes the main precondition visible. Across both
+suites, record matching covers 92.9\% of known mentions with the correct record
+and 0\% with the next customer's record. The wrong-record Presidio combination
+reverts to Presidio alone. Customer resolution is part of the redaction control.
 
 \begin{table}[htbp]
 \centering
-\caption{Record-resolution control on the canonical suite. Each chat is run
-with its correct customer profile and with the next synthetic customer's
-profile. The columns report full-mention recall and label-blind character
-$F_2$.}
+\caption{Record-resolution control across both suites. Each chat is run with
+its correct customer profile and with the next synthetic customer's profile.
+The columns report full-mention recall and label-blind character $F_2$.}
 \label{tab:resolution}
 \small
 \resizebox{\textwidth}{!}{\input{resolution_table.tex}}
@@ -185,10 +202,11 @@ and resolution state.
 \section*{Limits}
 
 The synthetic corpus cannot estimate real-world recall, precision, fairness,
-latency, or cost. It covers English text and omits misspellings, Unicode
-variation, speech-recognition errors, multi-turn accumulation, and adversarial
-evasion. The spaCy small model is a convenient reproducible baseline, not the
-strongest available language model.
+latency, or cost. It covers English text and only one deterministic character
+error in selected names and street lines. It omits broader spelling variation,
+nicknames, Unicode variation, speech-recognition errors, multi-turn
+accumulation, and adversarial evasion. The spaCy small model is a convenient
+reproducible baseline, not the strongest available language model.
 
 Masking direct identifiers is not anonymization. Residual text may identify a
 person through linked attributes or external information. De-identification is

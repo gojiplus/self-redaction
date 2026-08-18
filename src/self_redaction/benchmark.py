@@ -5,7 +5,7 @@ The experiment compares general PII detectors, customer-record matching, and
 their unions on two deterministic corpora:
 
 * ``canonical`` uses common formats covered by the detectors.
-* ``stress`` uses plausible but unsupported formats, third-party PII, and
+* ``stress`` uses mistyped and incomplete known values, third-party PII, and
   non-PII numeric distractors.
 
 The program also reruns the canonical corpus with an intentionally wrong
@@ -27,6 +27,8 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
+
+from rapidfuzz.distance import Levenshtein
 
 
 @dataclass(frozen=True, order=True)
@@ -281,21 +283,29 @@ def address_variant(address: str, i: int) -> str:
     return result
 
 
-def stress_address_variant(address: str) -> str:
+def mistype_token(value: str) -> str:
+    """Apply one deterministic character edit without changing token boundaries."""
+    if len(value) < 3:
+        raise ValueError("Synthetic typo targets must contain at least three characters.")
+    position = len(value) // 2
+    if len(value) == 3:
+        replacement = "x" if value[position].lower() != "x" else "z"
+        return f"{value[:position]}{replacement}{value[position + 1 :]}"
+    return f"{value[:position]}{value[position + 1 :]}"
+
+
+def incomplete_address_variant(address: str) -> str:
+    """Return a mistyped street line without city, state, or ZIP code."""
     match = re.fullmatch(
         r"(?P<number>\d+) (?P<street>[A-Za-z]+) "
-        r"(?P<suffix>Street|Avenue|Road|Boulevard), "
-        r"(?P<city>[A-Za-z]+), (?P<state>[A-Z]{2}) (?P<zip>\d{5})",
+        r"(?P<suffix>Street|Avenue|Road|Boulevard), .+",
         address,
     )
     if not match:
         raise ValueError(f"Unexpected synthetic address: {address}")
     values = match.groupdict()
     suffix = dict(SUFFIXES)[values["suffix"]]
-    return (
-        f"{values['number']} {values['street']} {suffix}., "
-        f"{values['city']} {values['state']} {values['zip']}"
-    )
+    return f"{values['number']} {mistype_token(values['street'])} {suffix}."
 
 
 def generate_canonical_chats(profiles: Sequence[Profile]) -> list[ChatRecord]:
@@ -389,7 +399,7 @@ def generate_stress_chats(profiles: Sequence[Profile]) -> list[ChatRecord]:
 
         b = TextBuilder()
         b.add("The account is under ")
-        b.add(f"{last}, {first}", label="NAME", source="known")
+        b.add(f"{mistype_token(last)}, {first}", label="NAME", source="known")
         b.add(". It concerns order #")
         b.add(profile.order_id.split("-", 1)[1], label="ORDER_ID", source="known")
         b.add(". My callback number is ")
@@ -404,19 +414,19 @@ def generate_stress_chats(profiles: Sequence[Profile]) -> list[ChatRecord]:
                 f"stress-{i:03d}-1",
                 profile.customer_id,
                 "stress",
-                "unsupported known formats",
+                "mistyped name and reformatted identifiers",
             )
         )
 
-        year, month, day = map(int, profile.dob.split("-"))
+        _, month, day = map(int, profile.dob.split("-"))
         b = TextBuilder()
         b.add("EMAIL: ")
         b.add(profile.email.upper(), label="EMAIL", source="known")
         b.add(". Deliver to ")
-        b.add(stress_address_variant(profile.address), label="ADDRESS", source="known")
+        b.add(incomplete_address_variant(profile.address), label="ADDRESS", source="known")
         b.add(". DOB: ")
         b.add(
-            f"{day} {MONTH_ABBREVIATIONS[month - 1]} {year}",
+            f"{day} {MONTH_ABBREVIATIONS[month - 1]}",
             label="DOB",
             source="known",
         )
@@ -426,7 +436,7 @@ def generate_stress_chats(profiles: Sequence[Profile]) -> list[ChatRecord]:
                 f"stress-{i:03d}-2",
                 profile.customer_id,
                 "stress",
-                "mixed supported and unsupported formats",
+                "incomplete and mistyped profile fields",
             )
         )
 
@@ -486,7 +496,7 @@ def generate_data(n_profiles: int = 64) -> tuple[list[Profile], list[ChatRecord]
 
 
 # Adapted from DataFog RegexAnnotator, MIT License, commit
-# 1dc8cc57ca82bd45ad2e60ac9529fd922937f25a. See THIRD_PARTY_NOTICES.md.
+# 1dc8cc57ca82bd45ad2e60ac9529fd922937f25a. See LICENSES/DataFog.txt.
 GENERIC_PATTERNS: dict[str, re.Pattern[str]] = {
     "EMAIL": re.compile(
         r"""
@@ -704,22 +714,109 @@ def dob_patterns(iso_date: str) -> list[re.Pattern[str]]:
     return [boundary_literal(value) for value in values]
 
 
+def normalized_words(value: str) -> str:
+    return " ".join(re.findall(r"[A-Za-z0-9]+", value.casefold()))
+
+
+def within_edit_distance(left: str, right: str, maximum: int) -> bool:
+    return Levenshtein.distance(left, right, score_cutoff=maximum) <= maximum
+
+
+def approximate_name_spans(profile: Profile, text: str) -> list[Span]:
+    first, last = profile.full_name.split(" ", 1)
+    targets = {
+        normalized_words(f"{first} {last}"),
+        normalized_words(f"{last} {first}"),
+    }
+    words = list(re.finditer(r"[A-Za-z]{2,}", text))
+    spans: list[Span] = []
+    for left, right in zip(words, words[1:], strict=False):
+        separator = text[left.end() : right.start()]
+        if not re.fullmatch(r"(?:\s+|,\s*)", separator):
+            continue
+        before = text[left.start() - 1] if left.start() else ""
+        before_before = text[left.start() - 2] if left.start() > 1 else ""
+        after = text[right.end()] if right.end() < len(text) else ""
+        after_after = text[right.end() + 1] if right.end() + 1 < len(text) else ""
+        if before == "@" or (before == "." and before_before.isalnum()):
+            continue
+        if after == "@" or (after == "." and after_after.isalnum()):
+            continue
+        candidate = normalized_words(text[left.start() : right.end()])
+        if len(candidate.replace(" ", "")) < 7:
+            continue
+        if any(within_edit_distance(candidate, target, 1) for target in targets):
+            spans.append(Span(left.start(), right.end(), "NAME", "record_approx"))
+    return spans
+
+
+def approximate_street_spans(address: str, text: str) -> list[Span]:
+    match = re.fullmatch(
+        r"(?P<number>\d+)\s+(?P<street>[A-Za-z]+)\s+"
+        r"(?P<suffix>Street|Avenue|Road|Boulevard),\s*.+",
+        address,
+    )
+    if not match:
+        return []
+    values = match.groupdict()
+    suffix_short = dict(SUFFIXES)[values["suffix"]]
+    candidate_pattern = re.compile(
+        r"(?<!\w)(?P<number>\d{1,6})\s+(?P<street>[A-Za-z]{2,})\s+"
+        r"(?P<suffix>Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd)\.?(?!\w)",
+        re.IGNORECASE,
+    )
+    return [
+        Span(candidate.start(), candidate.end(), "ADDRESS", "record_approx")
+        for candidate in candidate_pattern.finditer(text)
+        if candidate.group("number") == values["number"]
+        and candidate.group("suffix").casefold()
+        in {values["suffix"].casefold(), suffix_short.casefold()}
+        and within_edit_distance(
+            candidate.group("street").casefold(), values["street"].casefold(), 1
+        )
+    ]
+
+
 def self_detect(profile: Profile, text: str) -> list[Span]:
     spans: list[Span] = []
 
-    def add_matches(pattern: re.Pattern[str], label: str) -> None:
-        spans.extend(Span(match.start(), match.end(), label) for match in pattern.finditer(text))
+    def add_matches(pattern: re.Pattern[str], label: str, source: str = "record_exact") -> None:
+        spans.extend(
+            Span(match.start(), match.end(), label, source) for match in pattern.finditer(text)
+        )
 
-    add_matches(boundary_literal(profile.full_name), "NAME")
+    exact_names = [
+        Span(match.start(), match.end(), "NAME", "record_exact")
+        for match in boundary_literal(profile.full_name).finditer(text)
+    ]
+    spans.extend(exact_names)
+    spans.extend(
+        candidate
+        for candidate in approximate_name_spans(profile, text)
+        if not any(
+            candidate.start < exact.end and exact.start < candidate.end for exact in exact_names
+        )
+    )
     add_matches(boundary_literal(profile.email), "EMAIL")
-    add_matches(address_pattern(profile.address), "ADDRESS")
+    exact_addresses = [
+        Span(match.start(), match.end(), "ADDRESS", "record_exact")
+        for match in address_pattern(profile.address).finditer(text)
+    ]
+    spans.extend(exact_addresses)
+    spans.extend(
+        candidate
+        for candidate in approximate_street_spans(profile.address, text)
+        if not any(
+            candidate.start < exact.end and exact.start < candidate.end for exact in exact_addresses
+        )
+    )
     for pattern in dob_patterns(profile.dob):
         add_matches(pattern, "DOB")
 
     order_digits = profile.order_id.split("-", 1)[1]
     add_matches(
         re.compile(
-            rf"(?<!\w)(?:ORD\s*[- ]?\s*|order\s+){re.escape(order_digits)}(?!\w)",
+            rf"(?<!\w)(?:ORD\s*[-# ]?\s*|order\s+#?\s*){re.escape(order_digits)}(?!\w)",
             re.IGNORECASE,
         ),
         "ORDER_ID",
@@ -735,10 +832,13 @@ def self_detect(profile: Profile, text: str) -> list[Span]:
     )
 
     profile_phone_digits = re.sub(r"\D", "", profile.phone)[-10:]
-    for match in GENERIC_PATTERNS["PHONE"].finditer(text):
+    phone_candidates = re.compile(
+        r"(?<!\w)(?:\+?1[\s./-]*)?\(?\d{3}\)?[\s./-]*\d{3}[\s./-]*\d{4}(?!\w)"
+    )
+    for match in phone_candidates.finditer(text):
         candidate_digits = re.sub(r"\D", "", match.group())[-10:]
         if candidate_digits == profile_phone_digits:
-            spans.append(Span(match.start(), match.end(), "PHONE"))
+            spans.append(Span(match.start(), match.end(), "PHONE", "record_normalized"))
 
     return dedupe_spans(spans)
 
@@ -1048,6 +1148,13 @@ def method_title(method: str) -> str:
     return METHOD_TITLES.get(method, method.replace("_", " ").title())
 
 
+def entity_title(label: str) -> str:
+    title = label.replace("_", " ").title()
+    for mixed_case, uppercase in {"Id": "ID", "Dob": "DOB", "Ssn": "SSN"}.items():
+        title = title.replace(mixed_case, uppercase)
+    return title
+
+
 def tex_command_part(value: str) -> str:
     return "".join(part.title() for part in value.split("_"))
 
@@ -1060,7 +1167,7 @@ def write_tex_artifacts(
 ) -> None:
     lookup = {(str(row["suite"]), str(row["method"])): row for row in summary}
     methods = [str(row["method"]) for row in summary if row["suite"] == "canonical"]
-    macros = ["% Generated by self_redaction.py. Do not edit."]
+    macros = ["% Generated by self-redaction. Do not edit."]
     for suite in ("canonical", "stress", "all"):
         for method in methods:
             row = lookup[(suite, method)]
@@ -1084,7 +1191,7 @@ def write_tex_artifacts(
     (output_dir / "results.tex").write_text("\n".join(macros) + "\n", encoding="utf-8")
 
     table_lines = [
-        "% Generated by self_redaction.py. Do not edit.",
+        "% Generated by self-redaction. Do not edit.",
         r"\begin{tabular}{llrrrrrr}",
         r"\toprule",
         r"Suite & Method & Mention R & Known R & Novel R & Character F$_2$ & "
@@ -1116,7 +1223,7 @@ def write_tex_artifacts(
 
     resolution_lookup = {str(row["method"]): row for row in resolution_summary}
     resolution_lines = [
-        "% Generated by self_redaction.py. Do not edit.",
+        "% Generated by self-redaction. Do not edit.",
         r"\begin{tabular}{lrrr}",
         r"\toprule",
         r"Method & All mentions & Known mentions & Character F$_2$ \\",
@@ -1145,7 +1252,7 @@ def write_tex_artifacts(
         row for row in strata if row["suite"] == "all" and row["method"] == combined_method
     ]
     strata_lines = [
-        "% Generated by self_redaction.py. Do not edit.",
+        "% Generated by self-redaction. Do not edit.",
         r"\begin{tabular}{llrr}",
         r"\toprule",
         r"Source & Entity & Mentions & Fully redacted \\",
@@ -1156,7 +1263,7 @@ def write_tex_artifacts(
             " & ".join(
                 [
                     tex_escape(str(row["source"]).title()),
-                    tex_escape(str(row["label"]).replace("_", " ").title()),
+                    tex_escape(entity_title(str(row["label"]))),
                     str(row["mentions"]),
                     format_pct(row["mention_recall"]),
                 ]
@@ -1190,7 +1297,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path(__file__).resolve().parent / "build" / "analysis",
+        default=Path("build/analysis"),
         help="Directory for generated CSV, JSON, and TeX outputs",
     )
     parser.add_argument(
@@ -1217,17 +1324,16 @@ def main(argv: Sequence[str] | None = None) -> None:
         chats,
         build_standard_methods(profiles_by_id, general_detectors),
     )
-    canonical = [chat for chat in chats if chat.suite == "canonical"]
     resolution_name = "presidio" if args.presidio else "regex"
     resolution_summary, resolution_details = evaluate_methods(
-        canonical,
+        chats,
         build_resolution_methods(
             profiles,
             general_detectors[resolution_name],
             resolution_name,
         ),
     )
-    resolution_summary = [row for row in resolution_summary if row["suite"] == "canonical"]
+    resolution_summary = [row for row in resolution_summary if row["suite"] == "all"]
     strata = stratified_recall(chats, details)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
