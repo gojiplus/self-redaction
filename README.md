@@ -18,9 +18,9 @@ This is a sanity check, not a performance benchmark. The data are synthetic. The
 
 ## Result
 
-The deterministic corpus contains 64 customer profiles, 512 chats, and 1,600 labeled PII mentions. Pooled across the canonical and stress suites, record matching raises Presidio's full-mention recall from 60.4% to 87.3%. Recall on values present in the customer record rises from 47.2% to 95.3%; recall on novel values remains 77.1%.
+The deterministic corpus contains 64 customer profiles, 512 chats, and 1,600 labeled PII mentions. Pooled across the canonical and stress suites, record matching raises Presidio's full-mention recall from 60.4% to 87.3%. Recall on record-derived mentions rises from 47.2% to 95.3%; recall on novel mentions remains 77.1%.
 
-| Method | All mentions | Known values | Novel values |
+| Method | All mentions | Record-derived | Novel |
 | --- | ---: | ---: | ---: |
 | Regex | 48.0% | 28.6% | 72.7% |
 | Regex + record | 84.0% | 92.9% | 72.7% |

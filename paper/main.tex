@@ -55,9 +55,9 @@ new de-identification method.
 The check asks whether record matching covers sensitive spans that general PII
 detectors miss, without reducing coverage of facts absent from the record. Its
 main quantity is full-mention recall: the share of labeled mentions whose
-characters are all masked. Results split \emph{known} mentions, whose values
-appear in the resolved customer record, from \emph{novel} mentions first
-supplied in the chat.
+characters are all masked. Results distinguish \emph{known} mentions, which are
+derived from fields in the resolved customer record, from \emph{novel} mentions
+first supplied in the chat.
 
 The unit is a labeled mention in a fixed synthetic corpus. The analysis
 evaluates every generated chat. No sampling interval is reported because the
@@ -141,7 +141,7 @@ Presidio sometimes recognizes that fragment.
 \centering
 \caption{Redaction results on the deterministic synthetic corpus. Mention R is
 the share of labeled mentions fully masked. Known and novel R split that
-denominator by whether the value appears in the resolved customer record.
+denominator by whether the mention derives from the resolved customer record.
 Character $F_2$ ignores labels and weights recall twice as much as precision.
 Strict $F_1$ requires the exact boundary and label. FP spans have no character
 overlap with a labeled PII span. The All rows pool two designed suites and are
@@ -229,8 +229,8 @@ repository pins uv 0.12.5 and all Python dependencies in \texttt{uv.lock}.
 \begin{table}[H]
 \centering
 \caption{Full-mention recall for Presidio plus record matching, pooled over the
-canonical and stress suites. Known values appear in the resolved record; novel
-values do not.}
+canonical and stress suites. Known mentions derive from the resolved record;
+novel mentions do not.}
 \label{tab:strata}
 \small
 \input{strata_table.tex}
