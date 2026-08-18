@@ -28,6 +28,9 @@ def test_generator_contract() -> None:
         for span in chat.gold:
             assert span.source in {"known", "novel"}
             assert chat.text[span.start : span.end]
+            if span.label == "SSN":
+                area = int(chat.text[span.start : span.start + 3])
+                assert 900 <= area <= 999
 
 
 def test_headline_results_are_gated() -> None:

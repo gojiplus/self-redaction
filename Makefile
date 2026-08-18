@@ -11,7 +11,7 @@ analysis:
 paper: analysis
 	mkdir -p $(PAPER_DIR)
 	PATH=$(TEX_BIN):$(PATH) TEXINPUTS=$(ANALYSIS_DIR):paper: latexmk -pdf -interaction=nonstopmode -halt-on-error -output-directory=$(PAPER_DIR) paper/main.tex
-	! rg -n "undefined citations|There were undefined citations|Reference .* undefined|Overfull \\\\hbox" $(PAPER_DIR)/main.log
+	if grep -En "undefined citations|There were undefined citations|Reference .* undefined|Overfull \\\\hbox" $(PAPER_DIR)/main.log; then exit 1; else test "$$?" -eq 1; fi
 
 build: paper
 

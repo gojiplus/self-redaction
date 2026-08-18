@@ -338,7 +338,7 @@ def generate_canonical_chats(profiles: Sequence[Profile]) -> list[ChatRecord]:
 
         novel_email = f"alternate.{i:03d}@example.net"
         novel_phone = f"(646) 555-01{i % 100:02d}"
-        novel_ssn = f"{210 + (i % 500):03d}-{20 + (i % 70):02d}-{1000 + i:04d}"
+        novel_ssn = f"{900 + (i % 100):03d}-{20 + (i % 70):02d}-{1000 + i:04d}"
         b = TextBuilder()
         b.add("Account ")
         b.add(profile.account_id, label="ACCOUNT_ID", source="known")
@@ -436,7 +436,7 @@ def generate_stress_chats(profiles: Sequence[Profile]) -> list[ChatRecord]:
         )
         novel_email = f"handoff.{i:03d}@example.org"
         novel_phone = f"646-555-01{(i + 40) % 100:02d}"
-        novel_ssn = f"{310 + (i % 400):03d}-{30 + (i % 60):02d}-{2000 + i:04d}"
+        novel_ssn = f"{900 + (i % 100):03d}-{30 + (i % 60):02d}-{2000 + i:04d}"
         b = TextBuilder()
         b.add("Please coordinate with ")
         b.add(partner_name, label="NAME", source="novel")

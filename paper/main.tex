@@ -64,7 +64,9 @@ The generator creates \ProfileCount{} synthetic customer profiles and eight
 chats per profile, for \ChatCount{} chats and \MentionCount{} labeled mentions.
 Email domains use the reserved example domains. Phone numbers use the North
 American 555-0100 through 555-0199 fiction range. Payment-card examples use a
-standard test number.
+standard test number. Social Security number examples use area numbers 900
+through 999, which the Social Security Administration excludes from assignment
+\citep{ssaRandomization}.
 
 Four canonical chats per customer use common renderings of known fields. Four
 stress chats use last-name-first names, slash-separated phone numbers,
@@ -216,6 +218,7 @@ values do not.}
 \input{strata_table.tex}
 \end{table}
 
+\small
 \bibliographystyle{plainnat}
 \bibliography{paper/references}
 

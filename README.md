@@ -9,6 +9,8 @@ This repository provides a deterministic synthetic check of that design. It comp
 
 Each general detector runs alone and in combination with record matching. A separate control deliberately supplies the wrong customer record.
 
+The generator uses reserved example domains, fictional 555-01xx phone numbers, test payment cards, and SSN area numbers 900 through 999, which the Social Security Administration excludes from assignment ([SSA](https://www.ssa.gov/employer/randomizationfaqs.html)).
+
 This is a sanity check, not a performance benchmark. The data are synthetic. The result establishes only that record matching and general detection have complementary error surfaces. Record matching is strongest where the organization already knows the answer. General detection is necessary where it does not.
 
 ## Prior work

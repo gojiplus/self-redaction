@@ -1,0 +1,2 @@
+# SSA rejects automated link-checker requests with HTTP 403.
+^https://www\.ssa\.gov/employer/randomizationfaqs\.html$
