@@ -745,7 +745,7 @@ def approximate_name_spans(profile: Profile, text: str) -> list[Span]:
     }
     if len(normalized_words(profile.full_name).replace(" ", "")) < 7:
         return []
-    words = list(re.finditer(r"[A-Za-z]{2,}", text))
+    words = list(re.finditer(r"[A-Za-z]+", text))
     spans: list[Span] = []
     widths = {
         candidate_width
@@ -772,7 +772,14 @@ def approximate_name_spans(profile: Profile, text: str) -> list[Span]:
             candidate = normalized_words(text[left.start() : right.end()])
             if any(within_edit_distance(candidate, target, 1) for target in targets):
                 spans.append(Span(left.start(), right.end(), "NAME", "record_approx"))
-    return spans
+    return [
+        span
+        for span in spans
+        if not any(
+            other.start <= span.start and span.end <= other.end and other.length > span.length
+            for other in spans
+        )
+    ]
 
 
 def approximate_street_spans(address: str, text: str) -> list[Span]:
@@ -788,9 +795,9 @@ def approximate_street_spans(address: str, text: str) -> list[Span]:
     suffix_short = dict(SUFFIXES)[values["suffix"]]
     candidate_pattern = re.compile(
         r"(?<!\w)(?P<number>\d{1,6})\s+"
-        r"(?P<street>[A-Za-z]{2,}(?:\s+[A-Za-z]{2,})*)\s+"
+        r"(?P<street>[A-Za-z]+(?:\s+[A-Za-z]+)*)\s+"
         r"(?P<suffix>Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd)(?!\w)"
-        rf"(?:\s*,?\s*{re.escape(values['city'])}\s*,?\s*"
+        rf"(?:\.?\s*,?\s*{re.escape(values['city'])}\s*,?\s*"
         rf"{re.escape(values['state'])}\s+{re.escape(values['zip'])}(?!\w))?",
         re.IGNORECASE,
     )

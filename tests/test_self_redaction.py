@@ -195,6 +195,21 @@ def test_record_matcher_accepts_a_hyphenated_record_name() -> None:
     ]
 
 
+def test_record_matcher_keeps_one_letter_name_components_and_the_longest_span() -> None:
+    short_component_profile = replace(experiment.make_profile(0), full_name="Avery Li")
+    split_component_profile = replace(experiment.make_profile(0), full_name="Avery Garcia")
+
+    short_predictions = experiment.self_detect(short_component_profile, "Avery L")
+    split_predictions = experiment.self_detect(split_component_profile, "A very Garcia")
+
+    assert [(span.start, span.end, span.label) for span in short_predictions] == [
+        (0, len("Avery L"), "NAME")
+    ]
+    assert [(span.start, span.end, span.label) for span in split_predictions] == [
+        (0, len("A very Garcia"), "NAME")
+    ]
+
+
 def test_record_matcher_accepts_order_keyword_with_hyphen() -> None:
     profile = experiment.make_profile(0)
     order_digits = profile.order_id.split("-", 1)[1]
@@ -212,6 +227,21 @@ def test_record_matcher_does_not_fuzzy_match_a_house_number() -> None:
     text = "Deliver to 101 Cedar St."
 
     assert experiment.self_detect(profile, text) == []
+
+
+def test_record_matcher_handles_directional_streets_and_dotted_suffixes() -> None:
+    profile = replace(
+        experiment.make_profile(0),
+        address="100 W Main Street, Redmond, WA 98052",
+    )
+    partial = "100 W Man St"
+    complete = "100 W Man St., Redmond, WA 98052"
+
+    for text in (partial, complete):
+        predictions = experiment.self_detect(profile, text)
+        assert [(text[span.start : span.end], span.label, span.source) for span in predictions] == [
+            (text, "ADDRESS", "record_approx")
+        ]
 
 
 def test_record_matcher_handles_multiword_names_and_streets() -> None:
