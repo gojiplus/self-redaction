@@ -311,6 +311,15 @@ def incomplete_address_variant(address: str) -> str:
     return f"{values['number']} {' '.join(street_parts)} {suffix}"
 
 
+def stress_address_variant(address: str, i: int) -> str:
+    """Return a typoed street line, retaining the locality for half the profiles."""
+    street_line = incomplete_address_variant(address)
+    if i % 2 == 0:
+        return street_line
+    _, locality = address.split(",", 1)
+    return f"{street_line},{locality}"
+
+
 def generate_canonical_chats(profiles: Sequence[Profile]) -> list[ChatRecord]:
     chats: list[ChatRecord] = []
     for i, profile in enumerate(profiles):
@@ -426,7 +435,7 @@ def generate_stress_chats(profiles: Sequence[Profile]) -> list[ChatRecord]:
         b.add("EMAIL: ")
         b.add(profile.email.upper(), label="EMAIL", source="known")
         b.add(". Deliver to ")
-        b.add(incomplete_address_variant(profile.address), label="ADDRESS", source="known")
+        b.add(stress_address_variant(profile.address, i), label="ADDRESS", source="known")
         b.add(". DOB: ")
         b.add(
             f"{day} {MONTH_ABBREVIATIONS[month - 1]}",
@@ -439,7 +448,7 @@ def generate_stress_chats(profiles: Sequence[Profile]) -> list[ChatRecord]:
                 f"stress-{i:03d}-2",
                 profile.customer_id,
                 "stress",
-                "incomplete and mistyped profile fields",
+                "mistyped and sometimes incomplete profile fields",
             )
         )
 
@@ -734,37 +743,43 @@ def approximate_name_spans(profile: Profile, text: str) -> list[Span]:
         normalized_words(f"{first} {last}"),
         normalized_words(f"{last} {first}"),
     }
+    if len(normalized_words(profile.full_name).replace(" ", "")) < 7:
+        return []
     words = list(re.finditer(r"[A-Za-z]{2,}", text))
     spans: list[Span] = []
-    width = len(name_parts)
-    for index in range(len(words) - width + 1):
-        window = words[index : index + width]
-        if any(
-            not re.fullmatch(r"(?:\s+|,\s*)", text[left.end() : right.start()])
-            for left, right in zip(window, window[1:], strict=False)
-        ):
-            continue
-        left, right = window[0], window[-1]
-        before = text[left.start() - 1] if left.start() else ""
-        before_before = text[left.start() - 2] if left.start() > 1 else ""
-        after = text[right.end()] if right.end() < len(text) else ""
-        after_after = text[right.end() + 1] if right.end() + 1 < len(text) else ""
-        if before == "@" or (before == "." and before_before.isalnum()):
-            continue
-        if after == "@" or (after == "." and after_after.isalnum()):
-            continue
-        candidate = normalized_words(text[left.start() : right.end()])
-        if len(candidate.replace(" ", "")) < 7:
-            continue
-        if any(within_edit_distance(candidate, target, 1) for target in targets):
-            spans.append(Span(left.start(), right.end(), "NAME", "record_approx"))
+    widths = {
+        candidate_width
+        for target in targets
+        for candidate_width in range(max(1, len(target.split()) - 1), len(target.split()) + 2)
+    }
+    for width in sorted(widths):
+        for index in range(len(words) - width + 1):
+            window = words[index : index + width]
+            if any(
+                not re.fullmatch(r"(?:\s+|,\s*|-\s*)", text[left.end() : right.start()])
+                for left, right in zip(window, window[1:], strict=False)
+            ):
+                continue
+            left, right = window[0], window[-1]
+            before = text[left.start() - 1] if left.start() else ""
+            before_before = text[left.start() - 2] if left.start() > 1 else ""
+            after = text[right.end()] if right.end() < len(text) else ""
+            after_after = text[right.end() + 1] if right.end() + 1 < len(text) else ""
+            if before == "@" or (before == "." and before_before.isalnum()):
+                continue
+            if after == "@" or (after == "." and after_after.isalnum()):
+                continue
+            candidate = normalized_words(text[left.start() : right.end()])
+            if any(within_edit_distance(candidate, target, 1) for target in targets):
+                spans.append(Span(left.start(), right.end(), "NAME", "record_approx"))
     return spans
 
 
 def approximate_street_spans(address: str, text: str) -> list[Span]:
     match = re.fullmatch(
         r"(?P<number>\d+)\s+(?P<street>[A-Za-z]+(?:\s+[A-Za-z]+)*)\s+"
-        r"(?P<suffix>Street|Avenue|Road|Boulevard),\s*.+",
+        r"(?P<suffix>Street|Avenue|Road|Boulevard),\s*"
+        r"(?P<city>[A-Za-z]+),\s*(?P<state>[A-Z]{2})\s+(?P<zip>\d{5})",
         address,
     )
     if not match:
@@ -774,7 +789,9 @@ def approximate_street_spans(address: str, text: str) -> list[Span]:
     candidate_pattern = re.compile(
         r"(?<!\w)(?P<number>\d{1,6})\s+"
         r"(?P<street>[A-Za-z]{2,}(?:\s+[A-Za-z]{2,})*)\s+"
-        r"(?P<suffix>Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd)(?!\w)",
+        r"(?P<suffix>Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd)(?!\w)"
+        rf"(?:\s*,?\s*{re.escape(values['city'])}\s*,?\s*"
+        rf"{re.escape(values['state'])}\s+{re.escape(values['zip'])}(?!\w))?",
         re.IGNORECASE,
     )
     return [
@@ -828,7 +845,7 @@ def self_detect(profile: Profile, text: str) -> list[Span]:
     order_digits = profile.order_id.split("-", 1)[1]
     add_matches(
         re.compile(
-            rf"(?<!\w)(?:ORD\s*[-# ]?\s*|order\s+#?\s*){re.escape(order_digits)}(?!\w)",
+            rf"(?<!\w)(?:ORD|order)\s*[-# ]?\s*{re.escape(order_digits)}(?!\w)",
             re.IGNORECASE,
         ),
         "ORDER_ID",

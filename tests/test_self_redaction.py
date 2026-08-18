@@ -24,7 +24,23 @@ def test_generator_contract() -> None:
     assert len({experiment.make_profile(i).full_name for i in range(64)}) == 64
     assert {chat.suite for chat in chats} == {"canonical", "stress"}
     assert len({chat.chat_id for chat in chats}) == len(chats)
-    assert any(chat.scenario == "incomplete and mistyped profile fields" for chat in chats)
+    assert any(
+        chat.scenario == "mistyped and sometimes incomplete profile fields" for chat in chats
+    )
+    stress_profile_chats = [
+        chat
+        for chat in chats
+        if chat.suite == "stress"
+        and chat.scenario == "mistyped and sometimes incomplete profile fields"
+    ]
+    stress_addresses = [
+        chat.text[span.start : span.end]
+        for chat in stress_profile_chats
+        for span in chat.gold
+        if span.label == "ADDRESS"
+    ]
+    assert sum("," in address for address in stress_addresses) == 8
+    assert sum("," not in address for address in stress_addresses) == 8
     experiment.validate_generated_data(profiles, chats)
 
     for chat in chats:
@@ -144,6 +160,51 @@ def test_record_matcher_handles_bounded_typos_and_incomplete_address() -> None:
         (mistyped_name, "NAME", "record_approx"),
         (partial_address, "ADDRESS", "record_approx"),
     }
+
+
+def test_record_matcher_redacts_a_complete_address_with_a_street_typo() -> None:
+    profile = experiment.make_profile(1)
+    mistyped_address = experiment.stress_address_variant(profile.address, 1)
+    text = f"Deliver to {mistyped_address}."
+
+    predictions = experiment.self_detect(profile, text)
+
+    assert [(text[span.start : span.end], span.label, span.source) for span in predictions] == [
+        (mistyped_address, "ADDRESS", "record_approx")
+    ]
+
+
+def test_record_matcher_handles_one_edit_name_delimiters_and_minimum_length() -> None:
+    profile = replace(experiment.make_profile(0), full_name="Owen Kim")
+
+    for variant in ("Owen Ki", "OwenKim", "Owen-Kim"):
+        predictions = experiment.self_detect(profile, variant)
+        assert [
+            (variant[span.start : span.end], span.label, span.source) for span in predictions
+        ] == [(variant, "NAME", "record_approx")]
+
+
+def test_record_matcher_accepts_a_hyphenated_record_name() -> None:
+    profile = replace(experiment.make_profile(0), full_name="Mary-Jane Doe")
+    text = "Mary Jane Dxe"
+
+    predictions = experiment.self_detect(profile, text)
+
+    assert [(text[span.start : span.end], span.label, span.source) for span in predictions] == [
+        (text, "NAME", "record_approx")
+    ]
+
+
+def test_record_matcher_accepts_order_keyword_with_hyphen() -> None:
+    profile = experiment.make_profile(0)
+    order_digits = profile.order_id.split("-", 1)[1]
+    text = f"Order-{order_digits}"
+
+    predictions = experiment.self_detect(profile, text)
+
+    assert [(text[span.start : span.end], span.label) for span in predictions] == [
+        (text, "ORDER_ID")
+    ]
 
 
 def test_record_matcher_does_not_fuzzy_match_a_house_number() -> None:

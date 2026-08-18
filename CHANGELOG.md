@@ -3,8 +3,9 @@
 ## 0.1.1 - 2026-08-18
 
 - Package the implementation under `src/self_redaction`.
-- Add bounded Levenshtein matching for names and partial street lines.
-- Add deterministic mistyped and incomplete record fields to the stress suite.
+- Add bounded Levenshtein matching for names and typoed street lines.
+- Add deterministic mistyped, incomplete, and fully specified record fields to the stress suite.
+- Cover one-edit name delimiters and complete addresses with a street-name typo.
 - Replace the tracked release-note file with GitHub-generated release notes.
 - Move the DataFog license notice into the conventional `LICENSES` directory.
 
