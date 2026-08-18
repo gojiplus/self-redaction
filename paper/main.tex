@@ -1,0 +1,222 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{graphicx}
+\usepackage[hidelinks]{hyperref}
+\usepackage{microtype}
+\usepackage[round]{natbib}
+
+\input{results.tex}
+
+\title{Record matching complements general PII detection:\\
+A reproducible synthetic check}
+\author{self-redaction 0.1.0}
+\date{August 18, 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Record matching and general PII detection make different errors in a fixed
+synthetic corpus. Microsoft Presidio alone fully masks
+\AllPresidioMentionRecall{} of labeled mentions. Combining Presidio with fields
+from the resolved customer record masks \AllPresidioRecordMentionRecall{}.
+Known-mention recall rises from \AllPresidioKnownRecall{} to
+\AllPresidioRecordKnownRecall{}, while novel-mention recall remains
+\AllPresidioNovelRecall{}. Supplying the wrong customer record removes the
+record-matching gain. This is a sanity check, not a performance benchmark. The
+result establishes only that record matching and general detection have
+complementary error surfaces in these synthetic templates.
+\end{abstract}
+
+A service often knows which customer is speaking before it sends a support
+conversation to a model, an analytics system, or a log. The resolved record may
+contain a name, address, date of birth, order number, and account number. A
+redaction service can match selected fields directly and combine those spans
+with a general PII detector.
+
+The idea is not new. A 2008 clinical de-identification system matched patient
+names from the structured record linked to each note back into the note text. It
+combined those matches with dictionaries, regular expressions, and context
+rules \citep{neamatullah2008}. A later system created patient-specific runtime
+dictionaries and combined them with learned and rule-based components
+\citep{dehghan2015}. This project transfers that design to synthetic
+customer-support text. It does not claim a new de-identification method.
+
+\section*{What the check asks}
+
+The check asks whether record matching covers sensitive spans that general PII
+detectors miss, without reducing coverage of facts absent from the record. Its
+main quantity is full-mention recall: the share of labeled mentions whose
+characters are all masked. Results split \emph{known} mentions, whose values
+appear in the resolved customer record, from \emph{novel} mentions first
+supplied in the chat.
+
+The unit is a labeled mention in a fixed synthetic corpus. The analysis
+evaluates every generated chat. No sampling interval is reported because the
+corpus does not represent a sampled population of customers or conversations.
+
+\section*{Data and methods}
+
+The generator creates \ProfileCount{} synthetic customer profiles and eight
+chats per profile, for \ChatCount{} chats and \MentionCount{} labeled mentions.
+Email domains use the reserved example domains. Phone numbers use the North
+American 555-0100 through 555-0199 fiction range. Payment-card examples use a
+standard test number.
+
+Four canonical chats per customer use common renderings of known fields. Four
+stress chats use last-name-first names, slash-separated phone numbers,
+hash-prefixed order numbers, day-first dates, third-party PII, and ordinary
+numeric distractors. The stress suite was written after inspecting the original
+matcher. It is an adversarial software test, not a held-out sample.
+
+The analysis compares five pipelines:
+
+\begin{itemize}
+    \item \emph{Regex} uses the default structured-entity expressions from
+    DataFog's \texttt{RegexAnnotator}, pinned to commit \texttt{1dc8cc5}
+    \citep{datafog}.
+    \item \emph{Record} matches selected fields from the resolved customer
+    record. It rejects first names, ZIP codes, and last-four values because
+    short values collide with ordinary text.
+    \item \emph{Regex + record} masks the union of those two outputs.
+    \item \emph{Presidio} uses Presidio Analyzer 2.2.364 with its predefined
+    recognizers and spaCy's small English pipeline, version 3.8.0,
+    \citep{presidio,spacyModel}. The declared entity set covers people,
+    locations, dates, email addresses, phone numbers, Social Security numbers,
+    payment cards, and IP addresses.
+    \item \emph{Presidio + record} masks the union of Presidio and record
+    matches.
+\end{itemize}
+
+The lock file pins Presidio, spaCy, the English model, and all transitive
+dependencies. The Presidio adapter disables live Public Suffix List fetching
+and uses the snapshot bundled with the pinned \texttt{tldextract} package. This
+keeps email validation independent of network state.
+
+Character metrics ignore entity labels because the immediate task is masking.
+Strict entity metrics require the exact boundary and label. The analysis reports
+both. A ZIP detector, for example, may mask five sensitive characters inside an
+address without finding the full address.
+
+\section*{Results}
+
+Presidio fully masks \AllPresidioMentionRecall{} of mentions across both suites.
+Presidio plus record matching masks \AllPresidioRecordMentionRecall{}.
+Known-mention recall increases from \AllPresidioKnownRecall{} to
+\AllPresidioRecordKnownRecall{}. Novel-mention recall is
+\AllPresidioNovelRecall{} for both because the record matcher has no access to
+novel facts.
+
+Formatting matters. Record matching covers \CanonicalRecordKnownRecall{} of
+known mentions in the canonical suite and \StressRecordKnownRecall{} in the
+stress suite. Presidio plus record matching masks
+\CanonicalPresidioRecordMentionRecall{} of canonical mentions and
+\StressPresidioRecordMentionRecall{} of stress mentions. The stress failures
+include unsupported name, phone, date, and order formats.
+
+\begin{table}[htbp]
+\centering
+\caption{Redaction results on the deterministic synthetic corpus. Mention R is
+the share of labeled mentions fully masked. Known and novel R split that
+denominator by whether the value appears in the resolved customer record.
+Character $F_2$ ignores labels and weights recall twice as much as precision.
+Strict $F_1$ requires the exact boundary and label. FP spans have no character
+overlap with a labeled PII span. The All rows pool two designed suites and are
+not population estimates.}
+\label{tab:metrics}
+\scriptsize
+\resizebox{\textwidth}{!}{\input{metrics_table.tex}}
+\end{table}
+
+The wrong-record control makes the main precondition visible. Record matching
+covers 100\% of known canonical mentions with the correct record and 0\% with
+the next customer's record. The wrong-record Presidio combination reverts to
+Presidio alone. Customer resolution is part of the redaction control.
+
+\begin{table}[htbp]
+\centering
+\caption{Record-resolution control on the canonical suite. Each chat is run
+with its correct customer profile and with the next synthetic customer's
+profile. The columns report full-mention recall and label-blind character
+$F_2$.}
+\label{tab:resolution}
+\small
+\resizebox{\textwidth}{!}{\input{resolution_table.tex}}
+\end{table}
+
+\section*{What the result means}
+
+Record matching is strongest where the organization already knows the answer.
+It recovers account IDs, order IDs, addresses, and other values that a general
+detector must infer. General detection is necessary where the organization does
+not know the answer, including new contact details and third-party PII.
+
+The comparison does not establish production accuracy. The same project writes
+the profiles, templates, labels, matcher, and stress cases. Presidio is pinned
+to one version, one small English model, its default recognizers, and a declared
+entity set. A different model, threshold, recognizer configuration, language,
+or corpus can produce different results. The regex baseline remains useful as a
+transparent floor, not as a competitive detector.
+
+\section*{Production boundary}
+
+A production service should resolve the customer before redaction, preserve the
+resolution evidence, and retrieve only fields authorized for matching at the
+time of the interaction. Each match should retain its source field, record
+version, detector, and normalization rule. Ambiguous or failed resolution
+should appear in the result.
+
+Matching should run inside the trusted redaction service. Temporary lookup
+values should be discarded after the interaction, and only redacted text should
+leave the boundary. Copying the customer record into a model prompt would
+defeat the data-minimization purpose of the design \citep{nist800122}.
+
+Record matching cannot find changed contact information, secrets, facts
+supplied for the first time, or details about another person. A general detector
+and a separate output policy remain necessary. Production monitoring should
+measure leaks and over-redaction separately by field type, language, channel,
+and resolution state.
+
+\section*{Limits}
+
+The synthetic corpus cannot estimate real-world recall, precision, fairness,
+latency, or cost. It covers English text and omits misspellings, Unicode
+variation, speech-recognition errors, multi-turn accumulation, and adversarial
+evasion. The spaCy small model is a convenient reproducible baseline, not the
+strongest available language model.
+
+Masking direct identifiers is not anonymization. Residual text may identify a
+person through linked attributes or external information. De-identification is
+a family of risk-managed techniques, and some de-identified data can be
+re-identified \citep{garfinkel2015}. This check does not measure that risk or
+establish legal compliance.
+
+\section*{Reproducibility}
+
+One command generates every profile, chat, gold span, prediction, redacted
+output, aggregate CSV file, and TeX input used here. Tests gate corpus counts,
+headline results, wrong-record behavior, span scoring, overlap-safe redaction,
+conservative matching, Presidio integration, and output completeness. The
+repository pins uv 0.12.5 and all Python dependencies in \texttt{uv.lock}.
+
+\clearpage
+\appendix
+\section*{Presidio plus record recall by source and entity}
+
+\begin{table}[H]
+\centering
+\caption{Full-mention recall for Presidio plus record matching, pooled over the
+canonical and stress suites. Known values appear in the resolved record; novel
+values do not.}
+\label{tab:strata}
+\small
+\input{strata_table.tex}
+\end{table}
+
+\bibliographystyle{plainnat}
+\bibliography{paper/references}
+
+\end{document}
