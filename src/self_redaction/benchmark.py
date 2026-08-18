@@ -698,7 +698,8 @@ def address_pattern(address: str) -> re.Pattern[str]:
     match = re.fullmatch(
         r"(?P<number>\d+)\s+(?P<street>[A-Za-z]+(?:\s+[A-Za-z]+)*)\s+"
         r"(?P<suffix>Street|Avenue|Road|Boulevard),\s*"
-        r"(?P<city>[A-Za-z]+),\s*(?P<state>[A-Z]{2})\s+(?P<zip>\d{5})",
+        r"(?P<city>[A-Za-z]+(?:[ '-][A-Za-z]+)*),\s*"
+        r"(?P<state>[A-Z]{2})\s+(?P<zip>\d{5})",
         address,
     )
     if not match:
@@ -734,13 +735,13 @@ def within_edit_distance(left: str, right: str, maximum: int) -> bool:
     return Levenshtein.distance(left, right, score_cutoff=maximum) <= maximum
 
 
-def preserves_short_name_components(candidate: str, target: str) -> bool:
+def preserves_name_component_initials(candidate: str, target: str) -> bool:
     candidate_parts = candidate.split()
     target_parts = target.split()
     if len(candidate_parts) != len(target_parts):
         return True
     return all(
-        len(target_part) > 2 or candidate_part.startswith(target_part[0])
+        candidate_part.startswith(target_part[0])
         for candidate_part, target_part in zip(candidate_parts, target_parts, strict=True)
     )
 
@@ -761,7 +762,7 @@ def approximate_name_spans(profile: Profile, text: str) -> list[Span]:
     widths = {
         candidate_width
         for target in targets
-        for candidate_width in range(max(1, len(target.split()) - 1), len(target.split()) + 2)
+        for candidate_width in range(max(1, len(target.split()) - 1), len(target.split()) + 1)
     }
     for width in sorted(widths):
         for index in range(len(words) - width + 1):
@@ -783,7 +784,7 @@ def approximate_name_spans(profile: Profile, text: str) -> list[Span]:
             candidate = normalized_words(text[left.start() : right.end()])
             if any(
                 within_edit_distance(candidate, target, 1)
-                and preserves_short_name_components(candidate, target)
+                and preserves_name_component_initials(candidate, target)
                 for target in targets
             ):
                 spans.append(Span(left.start(), right.end(), "NAME", "record_approx"))
@@ -801,7 +802,8 @@ def approximate_street_spans(address: str, text: str) -> list[Span]:
     match = re.fullmatch(
         r"(?P<number>\d+)\s+(?P<street>[A-Za-z]+(?:\s+[A-Za-z]+)*)\s+"
         r"(?P<suffix>Street|Avenue|Road|Boulevard),\s*"
-        r"(?P<city>[A-Za-z]+),\s*(?P<state>[A-Z]{2})\s+(?P<zip>\d{5})",
+        r"(?P<city>[A-Za-z]+(?:[ '-][A-Za-z]+)*),\s*"
+        r"(?P<state>[A-Z]{2})\s+(?P<zip>\d{5})",
         address,
     )
     if not match:
@@ -816,16 +818,32 @@ def approximate_street_spans(address: str, text: str) -> list[Span]:
         rf"{re.escape(values['state'])}\s+{re.escape(values['zip'])}(?!\w))?",
         re.IGNORECASE,
     )
-    return [
-        Span(candidate.start(), candidate.end(), "ADDRESS", "record_approx")
-        for candidate in candidate_pattern.finditer(text)
-        if candidate.group("number") == values["number"]
-        and candidate.group("suffix").casefold()
-        in {values["suffix"].casefold(), suffix_short.casefold()}
-        and within_edit_distance(
+    supplied_locality = re.compile(
+        r"^\s*,?\s*(?P<city>[A-Za-z]+(?:[ '-][A-Za-z]+)*?)\s*,?\s+"
+        r"(?P<state>[A-Za-z]{2})\s+(?P<zip>\d{5})(?!\w)",
+        re.IGNORECASE,
+    )
+    spans: list[Span] = []
+    for candidate in candidate_pattern.finditer(text):
+        if candidate.group("number") != values["number"]:
+            continue
+        if candidate.group("suffix").casefold() not in {
+            values["suffix"].casefold(),
+            suffix_short.casefold(),
+        }:
+            continue
+        if not within_edit_distance(
             candidate.group("street").casefold(), values["street"].casefold(), 1
-        )
-    ]
+        ):
+            continue
+        trailing_locality = supplied_locality.match(text[candidate.end() :])
+        if trailing_locality and any(
+            trailing_locality.group(field).casefold() != values[field].casefold()
+            for field in ("city", "state", "zip")
+        ):
+            continue
+        spans.append(Span(candidate.start(), candidate.end(), "ADDRESS", "record_approx"))
+    return spans
 
 
 def self_detect(profile: Profile, text: str) -> list[Span]:
@@ -947,7 +965,12 @@ def score_chat(chat: ChatRecord, method: str, predicted: Sequence[Span]) -> dict
     overlap_chars = sum(gold and pred for gold, pred in zip(gold_mask, pred_mask, strict=True))
     safe_chars = len(chat.text) - gold_chars
     mention_hits = [
-        all(pred_mask[position] for position in range(span.start, span.end)) for span in chat.gold
+        all(
+            pred_mask[position]
+            for position in range(span.start, span.end)
+            if chat.text[position].isalnum()
+        )
+        for span in chat.gold
     ]
     gold_entities = {(span.start, span.end, span.label) for span in chat.gold}
     pred_entities = {(span.start, span.end, span.label) for span in predicted}

@@ -85,7 +85,7 @@ def test_presidio_and_record_matching_have_complementary_errors() -> None:
     summary, _ = experiment.evaluate_methods(chats, methods)
     rows = summary_lookup(summary)
 
-    assert rows[("all", "presidio")]["mention_recall"] == pytest.approx(58 / 100)
+    assert rows[("all", "presidio")]["mention_recall"] == pytest.approx(59 / 100)
     assert rows[("all", "presidio_record")]["mention_recall"] == pytest.approx(86 / 100)
     assert rows[("all", "presidio_record")]["known_mention_recall"] == pytest.approx(52 / 56)
     assert rows[("all", "presidio_record")]["novel_mention_recall"] == pytest.approx(34 / 44)
@@ -116,6 +116,21 @@ def test_scoring_separates_masking_from_strict_entity_detection() -> None:
     assert score["strict_true_positive_entities"] == 0
     assert score["wrong_label_spans"] == 1
     assert score["false_positive_spans"] == 0
+
+
+def test_mention_recall_ignores_unmasked_name_separators() -> None:
+    builder = experiment.TextBuilder()
+    builder.add("Garcia, Avery", label="NAME", source="known")
+    chat = builder.build("one", "CUST-1", "test", "reversed name")
+    predictions = [
+        experiment.Span(0, 6, "NAME"),
+        experiment.Span(8, 13, "NAME"),
+    ]
+
+    score = experiment.score_chat(chat, "general", predictions)
+
+    assert score["mentions_fully_redacted"] == 1
+    assert score["strict_true_positive_entities"] == 0
 
 
 def test_redaction_merges_overlapping_spans() -> None:
@@ -197,16 +212,11 @@ def test_record_matcher_accepts_a_hyphenated_record_name() -> None:
 
 def test_record_matcher_keeps_one_letter_name_components_and_the_longest_span() -> None:
     short_component_profile = replace(experiment.make_profile(0), full_name="Avery Li")
-    split_component_profile = replace(experiment.make_profile(0), full_name="Avery Garcia")
 
     short_predictions = experiment.self_detect(short_component_profile, "Avery L")
-    split_predictions = experiment.self_detect(split_component_profile, "A very Garcia")
 
     assert [(span.start, span.end, span.label) for span in short_predictions] == [
         (0, len("Avery L"), "NAME")
-    ]
-    assert [(span.start, span.end, span.label) for span in split_predictions] == [
-        (0, len("A very Garcia"), "NAME")
     ]
 
 
@@ -214,6 +224,12 @@ def test_record_matcher_does_not_borrow_words_for_a_short_name_component() -> No
     profile = replace(experiment.make_profile(0), full_name="Avery Li")
 
     assert experiment.self_detect(profile, "Hi Avery I need help") == []
+
+
+def test_record_matcher_does_not_split_ordinary_words_into_a_name() -> None:
+    profile = replace(experiment.make_profile(0), full_name="Avery Good")
+
+    assert experiment.self_detect(profile, "That was a very good result") == []
 
 
 def test_record_matcher_accepts_order_keyword_with_hyphen() -> None:
@@ -248,6 +264,22 @@ def test_record_matcher_handles_directional_streets_and_dotted_suffixes() -> Non
         assert [(text[span.start : span.end], span.label, span.source) for span in predictions] == [
             (text, "ADDRESS", "record_approx")
         ]
+
+
+def test_record_matcher_handles_multiword_cities_and_rejects_wrong_localities() -> None:
+    profile = replace(
+        experiment.make_profile(0),
+        address="100 Main Street, New York, NY 10001",
+    )
+    matching = "Deliver to 100 Man St, New York, NY 10001"
+    contradictory = "Deliver to 100 Man St, Austin, TX 78704"
+
+    predictions = experiment.self_detect(profile, matching)
+
+    assert [(matching[span.start : span.end], span.label, span.source) for span in predictions] == [
+        ("100 Man St, New York, NY 10001", "ADDRESS", "record_approx")
+    ]
+    assert experiment.self_detect(profile, contradictory) == []
 
 
 def test_record_matcher_stops_at_the_first_matching_street_suffix() -> None:
