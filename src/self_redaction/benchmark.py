@@ -734,6 +734,17 @@ def within_edit_distance(left: str, right: str, maximum: int) -> bool:
     return Levenshtein.distance(left, right, score_cutoff=maximum) <= maximum
 
 
+def preserves_short_name_components(candidate: str, target: str) -> bool:
+    candidate_parts = candidate.split()
+    target_parts = target.split()
+    if len(candidate_parts) != len(target_parts):
+        return True
+    return all(
+        len(target_part) > 2 or candidate_part.startswith(target_part[0])
+        for candidate_part, target_part in zip(candidate_parts, target_parts, strict=True)
+    )
+
+
 def approximate_name_spans(profile: Profile, text: str) -> list[Span]:
     name_parts = profile.full_name.split()
     if len(name_parts) < 2:
@@ -770,7 +781,11 @@ def approximate_name_spans(profile: Profile, text: str) -> list[Span]:
             if after == "@" or (after == "." and after_after.isalnum()):
                 continue
             candidate = normalized_words(text[left.start() : right.end()])
-            if any(within_edit_distance(candidate, target, 1) for target in targets):
+            if any(
+                within_edit_distance(candidate, target, 1)
+                and preserves_short_name_components(candidate, target)
+                for target in targets
+            ):
                 spans.append(Span(left.start(), right.end(), "NAME", "record_approx"))
     return [
         span
@@ -795,7 +810,7 @@ def approximate_street_spans(address: str, text: str) -> list[Span]:
     suffix_short = dict(SUFFIXES)[values["suffix"]]
     candidate_pattern = re.compile(
         r"(?<!\w)(?P<number>\d{1,6})\s+"
-        r"(?P<street>[A-Za-z]+(?:\s+[A-Za-z]+)*)\s+"
+        r"(?P<street>[A-Za-z]+(?:\s+[A-Za-z]+)*?)\s+"
         r"(?P<suffix>Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd)(?!\w)"
         rf"(?:\.?\s*,?\s*{re.escape(values['city'])}\s*,?\s*"
         rf"{re.escape(values['state'])}\s+{re.escape(values['zip'])}(?!\w))?",

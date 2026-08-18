@@ -6,6 +6,7 @@
 - Add bounded Levenshtein matching for names and typoed street lines.
 - Add deterministic mistyped, incomplete, and fully specified record fields to the stress suite.
 - Cover one-edit name delimiters and complete addresses with a street-name typo.
+- Guard short name components and stop typoed street matches at the first valid suffix.
 - Replace the tracked release-note file with GitHub-generated release notes.
 - Move the DataFog license notice into the conventional `LICENSES` directory.
 

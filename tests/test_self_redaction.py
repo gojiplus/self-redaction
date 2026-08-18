@@ -210,6 +210,12 @@ def test_record_matcher_keeps_one_letter_name_components_and_the_longest_span() 
     ]
 
 
+def test_record_matcher_does_not_borrow_words_for_a_short_name_component() -> None:
+    profile = replace(experiment.make_profile(0), full_name="Avery Li")
+
+    assert experiment.self_detect(profile, "Hi Avery I need help") == []
+
+
 def test_record_matcher_accepts_order_keyword_with_hyphen() -> None:
     profile = experiment.make_profile(0)
     order_digits = profile.order_id.split("-", 1)[1]
@@ -242,6 +248,20 @@ def test_record_matcher_handles_directional_streets_and_dotted_suffixes() -> Non
         assert [(text[span.start : span.end], span.label, span.source) for span in predictions] == [
             (text, "ADDRESS", "record_approx")
         ]
+
+
+def test_record_matcher_stops_at_the_first_matching_street_suffix() -> None:
+    profile = replace(
+        experiment.make_profile(0),
+        address="100 Cedar Street, Redmond, WA 98052",
+    )
+    text = "Deliver to 100 Cear St near Main Road"
+
+    predictions = experiment.self_detect(profile, text)
+
+    assert [(text[span.start : span.end], span.label, span.source) for span in predictions] == [
+        ("100 Cear St", "ADDRESS", "record_approx")
+    ]
 
 
 def test_record_matcher_handles_multiword_names_and_streets() -> None:
