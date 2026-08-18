@@ -8,9 +8,9 @@ their unions on two deterministic corpora:
 * ``stress`` uses mistyped and incomplete known values, third-party PII, and
   non-PII numeric distractors.
 
-The program also reruns the canonical corpus with an intentionally wrong
-customer record. That control measures the dependence of record matching on
-upstream entity resolution.
+The program also reruns both corpora with an intentionally wrong customer
+record. That control measures the dependence of record matching on upstream
+entity resolution.
 
 This is a sanity check, not a performance benchmark or production estimate.
 All names, identifiers, contact details, and addresses are synthetic.
@@ -305,7 +305,7 @@ def incomplete_address_variant(address: str) -> str:
         raise ValueError(f"Unexpected synthetic address: {address}")
     values = match.groupdict()
     suffix = dict(SUFFIXES)[values["suffix"]]
-    return f"{values['number']} {mistype_token(values['street'])} {suffix}."
+    return f"{values['number']} {mistype_token(values['street'])} {suffix}"
 
 
 def generate_canonical_chats(profiles: Sequence[Profile]) -> list[ChatRecord]:
@@ -762,7 +762,7 @@ def approximate_street_spans(address: str, text: str) -> list[Span]:
     suffix_short = dict(SUFFIXES)[values["suffix"]]
     candidate_pattern = re.compile(
         r"(?<!\w)(?P<number>\d{1,6})\s+(?P<street>[A-Za-z]{2,})\s+"
-        r"(?P<suffix>Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd)\.?(?!\w)",
+        r"(?P<suffix>Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd)(?!\w)",
         re.IGNORECASE,
     )
     return [

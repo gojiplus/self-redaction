@@ -27,6 +27,7 @@ def test_generator_contract() -> None:
     experiment.validate_generated_data(profiles, chats)
 
     for chat in chats:
+        assert ".." not in chat.text
         for span in chat.gold:
             assert span.source in {"known", "novel"}
             assert chat.text[span.start : span.end]
