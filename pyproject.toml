@@ -24,6 +24,11 @@ classifiers = [
 ]
 dependencies = []
 
+[project.urls]
+Homepage = "https://github.com/gojiplus/self-redaction"
+Issues = "https://github.com/gojiplus/self-redaction/issues"
+Repository = "https://github.com/gojiplus/self-redaction"
+
 [project.scripts]
 self-redaction = "self_redaction:main"
 
